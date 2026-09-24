@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "security-gate"
+version = "0.2.0"
+description = "AI-native commit security gate: scans each push/PR for secrets, risky code, fake packages, vulnerable dependencies and infra misconfigurations."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []  # standard library only; scanners (gitleaks, semgrep, checkov) are installed separately, pinned
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+security-gate = "security_gate.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["security_gate*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
