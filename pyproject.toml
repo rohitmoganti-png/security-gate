@@ -19,6 +19,9 @@ security-gate = "security_gate.cli:main"
 [tool.setuptools.packages.find]
 include = ["security_gate*"]
 
+[tool.setuptools.package-data]
+security_gate = ["rules/*.yml"]  # ship the AI-smell rule pack inside the package
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

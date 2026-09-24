@@ -8,6 +8,7 @@
 set -euo pipefail
 
 GITLEAKS_VERSION="8.30.1"
+SEMGREP_VERSION="1.178.0"
 
 gitleaks_sha256() {  # a function, not an associative array: macOS ships bash 3.2
   case "$1" in
@@ -50,5 +51,12 @@ install_gitleaks() {
   echo "    installed $TOOLS_DIR/gitleaks (checksum verified)"
 }
 
+install_semgrep() {
+  echo "==> semgrep ${SEMGREP_VERSION}"
+  python3 -m pip install --quiet --disable-pip-version-check "semgrep==${SEMGREP_VERSION}"
+  echo "    installed $(command -v semgrep || echo semgrep)"
+}
+
 install_gitleaks
+install_semgrep
 echo "Done. Tools are in: $TOOLS_DIR"
