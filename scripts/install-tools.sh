@@ -9,6 +9,7 @@ set -euo pipefail
 
 GITLEAKS_VERSION="8.30.1"
 SEMGREP_VERSION="1.178.0"
+CHECKOV_VERSION="3.3.19"
 
 gitleaks_sha256() {  # a function, not an associative array: macOS ships bash 3.2
   case "$1" in
@@ -57,6 +58,18 @@ install_semgrep() {
   echo "    installed $(command -v semgrep || echo semgrep)"
 }
 
+install_checkov() {
+  # Checkov has a huge dependency tree: give it its OWN virtualenv so it can never
+  # break Semgrep's dependencies, then link just the `checkov` command into TOOLS_DIR.
+  local venv="$(pwd)/.tools/checkov-venv"
+  echo "==> checkov ${CHECKOV_VERSION} (isolated env: $venv)"
+  python3 -m venv "$venv"
+  "$venv/bin/python" -m pip install --quiet --disable-pip-version-check "checkov==${CHECKOV_VERSION}"
+  ln -sf "$venv/bin/checkov" "$TOOLS_DIR/checkov"
+  echo "    installed $TOOLS_DIR/checkov"
+}
+
 install_gitleaks
 install_semgrep
+install_checkov
 echo "Done. Tools are in: $TOOLS_DIR"
