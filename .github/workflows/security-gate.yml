@@ -74,11 +74,22 @@ jobs:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
           PUSH_BEFORE: ${{ github.event.before }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          BRANCH: ${{ github.ref_name }}
         run: |
           if [ "$EVENT" = "pull_request" ]; then
             BASE="$PR_BASE"; HEAD="$PR_HEAD"
           else
             BASE="$PUSH_BEFORE"; HEAD="$GITHUB_SHA"
+            # A brand-new branch arrives with before=000...: compare it against the default
+            # branch (like a PR would), not against nothing. Only a truly empty repo scans all.
+            if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+              BASE=""
+              if [ "$BRANCH" != "$DEFAULT_BRANCH" ] && git rev-parse --verify -q "origin/$DEFAULT_BRANCH" >/dev/null; then
+                BASE="origin/$DEFAULT_BRANCH"
+                echo "::notice::New branch '$BRANCH': comparing against '$DEFAULT_BRANCH'."
+              fi
+            fi
           fi
           # Force-pushes can leave "before" pointing at a commit that no longer exists:
           # then treat everything as new rather than fail.
