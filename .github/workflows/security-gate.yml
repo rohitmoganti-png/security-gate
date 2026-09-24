@@ -1,0 +1,106 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Security Check: reusable workflow (Station 8).
+#
+# Client repos call it from their own CI, AFTER their tests pass:
+#
+#   security-check:
+#     needs: code-check
+#     uses: rohitmoganti-png/security-gate/.github/workflows/security-gate.yml@<commit-sha>
+#     with:
+#       gate-ref: <same commit-sha>
+#
+# Runs 6 checks on ONLY what the push / PR changed:
+#   1 Secrets (Gitleaks)   2 Risky code (Semgrep)   3 AI code smells (Semgrep + our pack)
+#   4 Fake packages (PyPI/npm/OSV)   5 Dependency CVEs (OSV.dev)   6 Infrastructure (Checkov)
+# ─────────────────────────────────────────────────────────────────────────────
+name: Security Check
+
+on:
+  workflow_call:
+    inputs:
+      gate-ref:
+        description: "Version (branch/tag/commit) of security-gate to run. Pin to a commit SHA."
+        type: string
+        default: main
+      mode:
+        description: "enforce = block on serious new issues; report = never block (watch only)"
+        type: string
+        default: ""
+      runner:
+        description: "Machine to run on (GitHub-hosted by default, or your own runner label)"
+        type: string
+        default: ubuntu-latest
+
+permissions:
+  contents: read # read-only: the check can never modify the repository
+
+jobs:
+  security-check:
+    name: Security Check
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 20
+    steps:
+      - name: Check out the code to scan
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # full history: needed to compare against the base commit
+          persist-credentials: false # don't leave a token lying around for scanned code
+
+      - name: Check out the Security Gate itself
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: rohitmoganti-png/security-gate
+          ref: ${{ inputs.gate-ref }}
+          path: .security-gate-tool
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install Security Gate + pinned scanners
+        run: |
+          python -m venv "$RUNNER_TEMP/gate-venv"
+          source "$RUNNER_TEMP/gate-venv/bin/activate"
+          pip install --quiet ./.security-gate-tool
+          cd .security-gate-tool && ./scripts/install-tools.sh
+          echo "$RUNNER_TEMP/gate-venv/bin" >> "$GITHUB_PATH"
+
+      - name: Work out what changed
+        id: range
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            BASE="$PR_BASE"; HEAD="$PR_HEAD"
+          else
+            BASE="$PUSH_BEFORE"; HEAD="$GITHUB_SHA"
+          fi
+          # Force-pushes can leave "before" pointing at a commit that no longer exists:
+          # then treat everything as new rather than fail.
+          if [ -n "$BASE" ] && ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "::notice::Base commit $BASE not found (force push?); scanning all files as new."
+            BASE=""
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "head=$HEAD" >> "$GITHUB_OUTPUT"
+          echo "Event: $EVENT | base: ${BASE:-<none: first push>} | head: $HEAD"
+
+      - name: Run the Security Check
+        env:
+          SECURITY_GATE_MODE: ${{ inputs.mode || vars.SECURITY_GATE_MODE || 'enforce' }}
+          BASE: ${{ steps.range.outputs.base }}
+          HEAD: ${{ steps.range.outputs.head }}
+        run: security-gate scan --base "$BASE" --head "$HEAD" --output security-report.json
+
+      - name: Upload the report
+        if: always() # keep the report even when the check fails
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: security-report
+          path: security-report.json
+          if-no-files-found: ignore
