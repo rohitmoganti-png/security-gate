@@ -69,11 +69,14 @@ def verdict(results: list[CheckResult], mode: str) -> tuple[int, str]:
 
 
 def print_summary(results: list[CheckResult], final: str) -> None:
-    print("\n" + "─" * 64)
-    print(f"{'#':<3}{'Check':<30}{'Result':<8}Details")
-    for i, r in enumerate(results, 1):
-        print(f"{i:<3}{r.name + ' (' + r.tool + ')':<30}{r.status:<8}{_count(r)}")
-    print("─" * 64)
+    labels = [f"{r.name} ({r.tool})" for r in results]
+    width = max([len(label) for label in labels] + [5]) + 2  # fit the longest check name
+    line = "─" * (width + 40)
+    print("\n" + line)
+    print(f"{'#':<3}{'Check':<{width}}{'Result':<8}Details")
+    for i, (r, label) in enumerate(zip(results, labels, strict=True), 1):
+        print(f"{i:<3}{label:<{width}}{r.status:<8}{_count(r)}")
+    print(line)
     print(f"RESULT: {final}")
 
 
