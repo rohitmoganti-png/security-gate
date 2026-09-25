@@ -58,38 +58,65 @@ def run(repo, model):
         return ai_review.run(changes, ws, call=model)
 
 
-def test_hunter_candidate_becomes_an_unverified_warning(repo):
-    model = FakeModel(json.dumps({"candidates": [IDOR]}))
+CONFIRMED_HIGH = {"verdict": "confirmed", "reasoning": "require_owner exists but is never called",
+                  "strongest_control": "none on this path", "likelihood": "high", "impact": "high",
+                  "confidence": "high"}  # fmt: skip
+NEEDS_VALIDATION = {"verdict": "needs_validation", "reasoning": "gateway may check",
+                    "blockers": "gateway config not in repo"}  # fmt: skip
+REJECTED = {"verdict": "rejected", "reason": "ownership enforced at app/routes.py:5"}
+
+
+def hunter_reply(*candidates):
+    return json.dumps({"candidates": list(candidates)})
+
+
+def test_confirmed_high_becomes_a_blocking_finding(repo):
+    model = FakeModel(hunter_reply(IDOR), json.dumps(CONFIRMED_HIGH))  # hunter, then verifier
     result = run(repo, model)
     (f,) = result.findings
     assert (f.rule, f.path, f.line) == ("ai.broken-access-control", "app/routes.py", 6)
-    assert f.severity is Severity.MEDIUM and not f.blocking  # one AI opinion never blocks
-    assert result.status is Status.WARN
+    assert f.severity is Severity.HIGH and f.blocking  # survived the verifier -> blocks
+    assert result.status is Status.FAIL
+    assert "CONFIRMED by independent verifier" in f.message
     assert "app/routes.py:4 -> app/routes.py:6" in f.evidence
-    assert any("estimated cost $0.0003" in n for n in result.notes)  # 1000 in + 400 out on luna
+    assert any("1 confirmed, 0 need review, 0 rejected" in n for n in result.notes)
+    assert any("2 call(s)" in n and "$0.0006" in n for n in result.notes)  # 2 x (1000 in + 400 out)
+
+
+def test_needs_validation_is_a_note_that_never_blocks(repo):
+    result = run(repo, FakeModel(hunter_reply(IDOR), json.dumps(NEEDS_VALIDATION)))
+    assert result.findings == () and result.status is Status.PASS
+    assert any(n.startswith("NEEDS HUMAN REVIEW (app/routes.py:6)") for n in result.notes)
+
+
+def test_rejected_candidate_is_dropped_with_its_reason(repo):
+    result = run(repo, FakeModel(hunter_reply(IDOR), json.dumps(REJECTED)))
+    assert result.findings == ()
+    assert any("rejected by verifier" in n and "routes.py:5" in n for n in result.notes)
 
 
 def test_the_model_was_shown_the_imported_auth_file_and_the_injection_rules(repo):
-    model = FakeModel(json.dumps({"candidates": []}))
+    model = FakeModel(hunter_reply())
     run(repo, model)
     system, user = model.calls[0]
     assert "untrusted DATA" in system
     assert "=== FILE: app/auth.py  (imported by app/routes.py) ===" in user
+    assert len(model.calls) == 1  # no candidates -> no verifier calls, no extra cost
 
 
-def test_malformed_reply_gets_exactly_one_retry(repo):
-    model = FakeModel("Sure! Here are the issues: ...", json.dumps({"candidates": [IDOR]}))
+def test_malformed_hunter_reply_gets_exactly_one_retry(repo):
+    model = FakeModel("Sure! Here are the issues: ...", hunter_reply(IDOR), json.dumps(CONFIRMED_HIGH))
     result = run(repo, model)
-    assert len(model.calls) == 2
+    assert len(model.calls) == 3  # hunter, hunter retry, verifier
     assert "Your previous reply was rejected" in model.calls[1][1]
     assert len(result.findings) == 1
-    assert any("2800" in n or "2000 input" in n for n in result.notes)  # usage of both calls counted
 
 
-def test_hallucinated_citation_is_filtered_not_trusted(repo):
+def test_hallucinated_citation_is_filtered_before_the_verifier(repo):
     fake = {**IDOR, "trace": [IDOR["trace"][0], {**IDOR["trace"][1], "path": "app/middleware.py"}]}
-    result = run(repo, FakeModel(json.dumps({"candidates": [fake]})))
-    assert result.findings == ()
+    model = FakeModel(hunter_reply(fake))
+    result = run(repo, model)
+    assert result.findings == () and len(model.calls) == 1  # never reaches the verifier
     assert any("cites a file it was not given" in n for n in result.notes)
 
 
