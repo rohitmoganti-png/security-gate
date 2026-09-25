@@ -50,6 +50,7 @@ class CheckResult:
     not_applicable: str = ""  # set when the check doesn't apply to this change
     seconds: float = 0.0
     notes: tuple[str, ...] = field(default_factory=tuple)
+    details: dict = field(default_factory=dict)  # structured extras (e.g. AI usage) for reports/dashboards
 
     @property
     def status(self) -> Status:

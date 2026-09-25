@@ -125,9 +125,11 @@ def test_cli_end_to_end_blocks_and_writes_report(repo, tmp_path, monkeypatch, ca
     summary = tmp_path / "summary.md"
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
     out = tmp_path / "report.json"
-    code = main(["scan", "--repo", str(repo.path), "--base", "HEAD~1", "--output", str(out)])
+    html = tmp_path / "report.html"
+    code = main(["scan", "--repo", str(repo.path), "--base", "HEAD~1", "--output", str(out), "--html", str(html)])
     text = capsys.readouterr().out
     assert code == EXIT_BLOCKED
     assert "1. Secrets (gitleaks)" in text and "RESULT: BLOCKED" in text
-    assert FAKE_KEY not in text + out.read_text() + summary.read_text()
+    assert FAKE_KEY not in text + out.read_text() + summary.read_text() + html.read_text()
+    assert "BLOCKED: 1 blocking issue" in html.read_text()
     assert "## Security Check" in summary.read_text()

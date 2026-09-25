@@ -10,8 +10,9 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from pathlib import Path
 
-from security_gate import __version__, report
+from security_gate import __version__, html_report, report
 from security_gate.changes import GitError, collect_changes
 from security_gate.checks import ALL_CHECKS
 from security_gate.workspace import make_workspace
@@ -32,6 +33,7 @@ def main(argv: list[str] | None = None) -> int:
         help="enforce = block on serious new issues; report = never block",
     )
     scan.add_argument("--output", default="security-report.json", help="JSON report path")
+    scan.add_argument("--html", default="security-report.html", help="HTML report path")
     args = parser.parse_args(argv)
 
     try:
@@ -53,8 +55,10 @@ def main(argv: list[str] | None = None) -> int:
     code, final = report.verdict(results, args.mode)
     report.print_summary(results, final)
     report.write_github_summary(results, final)
-    report.write_json(args.output, changes, results, final)
-    print(f"Full report: {args.output}")
+    data = report.build_report(changes, results, final, args.mode, code)
+    report.write_json(args.output, data)
+    Path(args.html).write_text(html_report.render(data))
+    print(f"Full report: {args.output} and {args.html}")
     return code
 
 

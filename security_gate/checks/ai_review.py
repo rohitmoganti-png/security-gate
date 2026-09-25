@@ -79,5 +79,32 @@ def run(changes: ChangeSet, workspace: Workspace, call: Caller | None = None) ->
     ]
     if context.truncated:
         summary.append("context was trimmed to the size cap; some imported files were not shown")
+    details = {
+        "model": llm.model_name(),
+        "calls": len(replies),
+        "input_tokens": tokens_in,
+        "output_tokens": tokens_out,
+        "cost_usd": round(sum(costs), 6) if all(c is not None for c in costs) else None,
+        "files_reviewed": [f.path for f in context.files],
+        "candidates": len(hunted.candidates),
+        "verdicts": [
+            {
+                "title": r.verdict.candidate.title,
+                "category": r.verdict.candidate.category,
+                "location": f"{r.verdict.candidate.sink.path}:{r.verdict.candidate.sink.line}",
+                "trace": [f"{s.path}:{s.line}" for s in r.verdict.candidate.trace],
+                "verdict": r.verdict.verdict,
+                "reasoning": r.verdict.reasoning,
+                "likelihood": r.verdict.likelihood,
+                "impact": r.verdict.impact,
+                "severity": str(r.verdict.severity) if r.verdict.severity else None,
+                "blockers": r.verdict.blockers,
+                "suggested_fix": r.verdict.candidate.suggested_fix,
+                "fingerprint": r.verdict.candidate.fingerprint,
+            }
+            for r in verified
+        ],
+        "rejected_by_validator": list(hunted.rejected),
+    }
     return CheckResult(NAME, tool, tuple(findings), seconds=time.monotonic() - started,
-                       notes=tuple(summary + notes + hunted.rejected))  # fmt: skip
+                       notes=tuple(summary + notes + hunted.rejected), details=details)  # fmt: skip

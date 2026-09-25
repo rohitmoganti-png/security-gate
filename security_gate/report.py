@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import asdict
+from datetime import UTC, datetime
 from pathlib import Path
 
 from security_gate import __version__
@@ -103,19 +104,59 @@ def write_github_summary(results: list[CheckResult], final: str) -> None:
         fh.write("\n".join(rows) + "\n")
 
 
-def write_json(path: str, changes: ChangeSet, results: list[CheckResult], final: str) -> None:
-    data = {
+def run_metadata(changes: ChangeSet) -> dict:
+    """Where/when this ran, from the variables GitHub Actions sets (empty when run locally)."""
+    env = os.environ
+    server = env.get("GITHUB_SERVER_URL", "https://github.com")
+    repo = env.get("GITHUB_REPOSITORY", "")
+    run_id = env.get("GITHUB_RUN_ID", "")
+    ref = env.get("GITHUB_REF", "")
+    pr = ref.split("/")[2] if ref.startswith("refs/pull/") else None
+    return {
+        "repository": repo,
+        "server_url": server,
+        "event": env.get("GITHUB_EVENT_NAME", "local"),
+        "branch": env.get("GITHUB_HEAD_REF") or env.get("GITHUB_REF_NAME", ""),
+        "pull_request": int(pr) if pr and pr.isdigit() else None,
+        "head_sha": changes.head,
+        "base_sha": changes.base,
+        "actor": env.get("GITHUB_ACTOR", ""),
+        "run_id": run_id,
+        "run_url": f"{server}/{repo}/actions/runs/{run_id}" if repo and run_id else "",
+        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
+
+
+def build_report(
+    changes: ChangeSet, results: list[CheckResult], final: str, mode: str, exit_code: int
+) -> dict:
+    """Everything a person or a dashboard needs about one run (secrets are already masked)."""
+    blocking = sum(1 for r in results for f in r.findings if f.blocking)
+    return {
         "version": __version__,
-        "base": changes.base,
-        "head": changes.head,
         "result": final,
+        "exit_code": exit_code,
+        "mode": mode,
+        "blocking_count": blocking,
+        "duration_seconds": round(sum(r.seconds for r in results), 1),
+        "run": run_metadata(changes),
+        "changed_files": [
+            {"path": f.path, "status": f.status, "lines_changed": len(f.added_lines)}
+            for f in changes.files
+        ],
         "checks": [
-            {**asdict(r), "status": r.status, "findings": [
-                {**asdict(f), "blocking": f.blocking} for f in r.findings]}
+            {
+                **asdict(r),
+                "status": r.status,
+                "findings": [{**asdict(f), "blocking": f.blocking} for f in r.findings],
+            }
             for r in results
         ],
     }
-    Path(path).write_text(json.dumps(data, indent=2, default=str))
+
+
+def write_json(path: str, report: dict) -> None:
+    Path(path).write_text(json.dumps(report, indent=2, default=str))
 
 
 def _count(r: CheckResult) -> str:

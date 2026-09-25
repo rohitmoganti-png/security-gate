@@ -44,6 +44,11 @@ jobs:
     name: Security Check
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 20
+    outputs:
+      exit-code: ${{ steps.scan.outputs.exit-code }}
+      summary: ${{ steps.scan.outputs.summary }}
+      head-sha: ${{ steps.range.outputs.head }}
+      report-url: ${{ steps.upload-html.outputs.artifact-url }}
     steps:
       - name: Check out the code to scan
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -107,18 +112,88 @@ jobs:
           echo "Event: $EVENT | base: ${BASE:-<none: first push>} | head: $HEAD"
 
       - name: Run the Security Check
+        id: scan
         env:
           SECURITY_GATE_MODE: ${{ inputs.mode || vars.SECURITY_GATE_MODE || 'enforce' }}
           SECURITY_GATE_MODEL: ${{ vars.SECURITY_GATE_MODEL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           BASE: ${{ steps.range.outputs.base }}
           HEAD: ${{ steps.range.outputs.head }}
-        run: security-gate scan --base "$BASE" --head "$HEAD" --output security-report.json
+        run: |
+          set +e
+          security-gate scan --base "$BASE" --head "$HEAD" \
+            --output security-report.json --html security-report.html
+          code=$?
+          echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+          # one-line summary for the PR's "Security Report" row (GitHub allows 140 characters)
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          try:
+              r = json.load(open("security-report.json"))
+              failed = [c["name"] for c in r["checks"] if c["status"] in ("FAIL", "ERROR")]
+              text = r["result"] + (f" ({', '.join(failed)})" if failed else "")
+          except Exception:
+              text = "Security Gate could not produce a report"
+          print("summary=" + (text[:118] + " - see Details")[:140])
+          PY
+          exit $code
 
-      - name: Upload the report
-        if: always() # keep the report even when the check fails
+      - name: Upload the HTML report (opens as a single file)
+        id: upload-html
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: security-report
+          path: security-report.html
+          archive: false # single file, not zipped: the link opens / downloads the page directly
+          if-no-files-found: ignore
+
+      - name: Upload the JSON report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: security-report-json
           path: security-report.json
           if-no-files-found: ignore
+
+      - name: Link the report on the run's Summary page
+        if: always() && steps.upload-html.outputs.artifact-url != ''
+        env:
+          URL: ${{ steps.upload-html.outputs.artifact-url }}
+        run: |
+          {
+            echo ""
+            echo "### 📄 [Open the full security report (HTML)]($URL)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Puts a "Security Report" row, with a Details link to the HTML report, into the PR's
+  # checks box. Separate job with the ONLY write permission (commit statuses); it never
+  # checks out or runs the scanned code. Skipped when GitHub gives no write access (forks).
+  report-link:
+    name: Security Report link
+    needs: security-check
+    if: always() && needs.security-check.outputs.report-url != ''
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 5
+    permissions:
+      statuses: write
+    steps:
+      - name: Post the "Security Report" status with the report link
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ needs.security-check.outputs.head-sha }}
+          CODE: ${{ needs.security-check.outputs.exit-code }}
+          SUMMARY: ${{ needs.security-check.outputs.summary }}
+          URL: ${{ needs.security-check.outputs.report-url }}
+        run: |
+          case "$CODE" in
+            0) STATE=success ;;
+            1) STATE=failure ;;
+            *) STATE=error ;;
+          esac
+          gh api --method POST "repos/$REPO/statuses/$SHA" \
+            -f state="$STATE" \
+            -f context="Security Report" \
+            -f description="$SUMMARY" \
+            -f target_url="$URL" > /dev/null
+          echo "Posted '$STATE' Security Report status on $SHA -> $URL"
