@@ -8,7 +8,10 @@ version = "0.2.0"
 description = "AI-native commit security gate: scans each push/PR for secrets, risky code, fake packages, vulnerable dependencies and infra misconfigurations."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []  # standard library only; scanners (gitleaks, semgrep, checkov) are installed separately, pinned
+# Pinned exactly (supply chain). Scanners (gitleaks, semgrep, checkov) are installed separately.
+dependencies = [
+    "openai==3.19.2",  # Stations 9/10: AI Hunter + Verifier (client's own API key)
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]

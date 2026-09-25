@@ -4,6 +4,6 @@ Each check is a module with `run(changes, workspace) -> CheckResult`.
 Adding a check = write the module + add it to this list.
 """
 
-from security_gate.checks import ai_smells, code, cves, iac, packages, secrets
+from security_gate.checks import ai_review, ai_smells, code, cves, iac, packages, secrets
 
-ALL_CHECKS = [secrets, code, ai_smells, packages, cves, iac]
+ALL_CHECKS = [secrets, code, ai_smells, packages, cves, iac, ai_review]

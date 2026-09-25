@@ -12,6 +12,7 @@
 # Runs 6 checks on ONLY what the push / PR changed:
 #   1 Secrets (Gitleaks)   2 Risky code (Semgrep)   3 AI code smells (Semgrep + our pack)
 #   4 Fake packages (PyPI/npm/OSV)   5 Dependency CVEs (OSV.dev)   6 Infrastructure (Checkov)
+#   7 AI review (Hunter; needs the caller to pass secrets.OPENAI_API_KEY)
 # ─────────────────────────────────────────────────────────────────────────────
 name: Security Check
 
@@ -30,6 +31,10 @@ on:
         description: "Machine to run on (GitHub-hosted by default, or your own runner label)"
         type: string
         default: ubuntu-latest
+    secrets:
+      OPENAI_API_KEY:
+        description: "Your own OpenAI key for the AI review (check 7). Optional: without it, AI review is skipped."
+        required: false
 
 permissions:
   contents: read # read-only: the check can never modify the repository
@@ -104,6 +109,8 @@ jobs:
       - name: Run the Security Check
         env:
           SECURITY_GATE_MODE: ${{ inputs.mode || vars.SECURITY_GATE_MODE || 'enforce' }}
+          SECURITY_GATE_MODEL: ${{ vars.SECURITY_GATE_MODEL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           BASE: ${{ steps.range.outputs.base }}
           HEAD: ${{ steps.range.outputs.head }}
         run: security-gate scan --base "$BASE" --head "$HEAD" --output security-report.json
