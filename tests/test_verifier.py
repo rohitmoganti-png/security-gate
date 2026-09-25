@@ -99,3 +99,11 @@ def test_verifier_prompt_says_comments_are_not_controls():
     assert "treat the control as ABSENT" in VERIFIER_SYSTEM
     assert "REFERENCED but not shown" in VERIFIER_SYSTEM
     assert "Do not demand proof that data exists" in VERIFIER_SYSTEM
+
+
+def test_verifier_prompt_has_a_rating_rubric():
+    from security_gate.ai.prompts import VERIFIER_SYSTEM
+
+    assert "RATING RUBRIC" in VERIFIER_SYSTEM
+    assert "reading or modifying ANOTHER user's private" in VERIFIER_SYSTEM  # IDOR -> impact high
+    assert "by changing\n          an ID" in VERIFIER_SYSTEM  # trivially triggerable -> likelihood high
