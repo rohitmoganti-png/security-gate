@@ -37,3 +37,10 @@ def who(token, key):
 
 def check_owner(user, invoice):
     return user.id == invoice.owner_id                           # 9 real logic
+
+
+def get_invoice(user, invoice_id):
+    # Ownership is checked below; see require_owner in app/auth.py.       # 10 an ordinary comment
+    invoice = load(invoice_id)
+    require_owner(user, invoice.owner_id)
+    return invoice

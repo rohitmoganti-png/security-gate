@@ -17,6 +17,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "ai_smells"
 CATEGORIES = {
     "placeholder-credentials", "tls-disabled", "sql-string-building", "shell-injection",
     "silent-failure", "cors-wildcard", "debug-enabled", "jwt-no-verify", "unfinished-scaffolding",
+    "reviewer-manipulation",
 }  # fmt: skip
 
 pytestmark = pytest.mark.skipif(find_tool("semgrep") is None, reason="semgrep not installed")
@@ -39,7 +40,7 @@ def run_pack_on_fixtures(tmp_path):
 
 def test_ai_smell_pack_every_category_has_a_positive_case(tmp_path):
     hits = run_pack_on_fixtures(tmp_path)
-    assert hits["bad.py"] == CATEGORIES  # all 9 categories caught in Python
+    assert hits["bad.py"] == CATEGORIES  # all 10 categories caught in Python
     assert len(hits["bad.js"]) == 6  # the categories that have JavaScript rules
 
 

@@ -152,3 +152,15 @@ rules:
     paths:
       exclude: ["*.md", "*.txt"]
     metadata: {source: ai-smell-pack, category: unfinished-scaffolding}
+
+  # 10. Comments that try to steer security reviewers (prompt injection / review manipulation)
+  #     Normal code has no reason to address the reviewer. Added after I-016: such a comment
+  #     made the AI Verifier hesitate, so the manipulation attempt itself is now flagged.
+  - id: ai-smell.reviewer-manipulation
+    languages: [generic]
+    severity: WARNING
+    message: This comment tries to steer security reviewers or AI tools ("do not flag", "approved by security", "ignore previous instructions"). Treat the code next to it with extra suspicion; claims in comments are not controls.
+    pattern-regex: (?i)(#|//|/\*|\*|<!--).{0,80}((do not|don'?t|must not|should not|never) (flag|report|scan|review)|ai (reviewer|scanner|tool|assistant)s?\b|ignore (all )?(previous|prior|above) (instructions|rules)|(approved|reviewed|signed off) by (appsec|security|the security team)|security scanners? (must|should) (skip|ignore))
+    paths:
+      exclude: ["*.md", "*.txt"]
+    metadata: {source: ai-smell-pack, category: reviewer-manipulation}

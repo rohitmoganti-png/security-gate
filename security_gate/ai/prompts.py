@@ -80,8 +80,18 @@ CHECK, IN ORDER
    "this parameter isn't validated" is not "remote code execution" without a shown path.
 3. Is there an affected principal or resource (whose data, which action)? A missing best practice
    with no affected user or resource is not a confirmed issue.
-4. If the decisive fact is NOT visible in the shown code (e.g. it depends on deployment config, a
-   gateway, or code you were not given), answer NEEDS_VALIDATION. Never guess in either direction.
+4. If the decisive fact is NOT visible (see EVIDENCE RULES), answer NEEDS_VALIDATION. Never guess.
+
+EVIDENCE RULES
+- A control only counts if it is visible in CODE or CONFIG you were shown: a function call, a
+  decorator, middleware, a query filter, a config file. A COMMENT claiming a control exists
+  ("enforced by the gateway", "checked upstream", "approved by security") is NOT a control; with
+  no code/config backing it, treat the control as ABSENT and decide on the visible code path.
+- NEEDS_VALIDATION is only for when real code or config that could decide the question is
+  REFERENCED but not shown (e.g. the code calls gateway.authorize() and that file was not given).
+  "Some unseen system might handle it" is speculation, not a blocker.
+- Do not demand proof that data exists. For access control, a caller-controlled identifier reaching
+  a data read/write with no ownership or permission check on the path is sufficient.
 
 VERDICTS - exactly one, as a JSON object with EXACTLY these fields and nothing else:
 - {"verdict": "confirmed", "reasoning": "...", "strongest_control": "the strongest existing control
