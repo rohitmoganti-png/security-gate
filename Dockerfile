@@ -5,7 +5,10 @@
 # installed from a hash-locked file (docker/requirements-*.txt, generated with
 # `uv pip compile --generate-hashes`). To upgrade anything: change it in docker/*.in,
 # re-lock, rebuild with a NEW ImageTag (ECR tags are immutable).
-FROM ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
+# Base image from AWS's public mirror of Docker Official Images (ECR Public), not Docker Hub:
+# CodeBuild shares IP addresses, so anonymous Docker Hub pulls hit its rate limit (429).
+# Same image: the digest is identical on both registries.
+FROM public.ecr.aws/docker/library/ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
 
 ARG GITLEAKS_VERSION=8.30.1
 ARG GITLEAKS_SHA256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
