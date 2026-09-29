@@ -24,9 +24,12 @@ NAME = "AI review"
 
 def run(changes: ChangeSet, workspace: Workspace, call: Caller | None = None) -> CheckResult:
     started = time.monotonic()
-    tool = f"hunter+verifier: {llm.model_name()}"
-    if call is None and not llm.api_key():
-        return CheckResult(NAME, tool, not_applicable="no OPENAI_API_KEY configured (AI review skipped)")
+    try:
+        tool = f"hunter+verifier: {llm.provider()}/{llm.model_name()}"
+    except llm.LLMError as exc:  # e.g. unknown provider name
+        return CheckResult(NAME, "hunter+verifier", error=str(exc))
+    if call is None and (reason := llm.not_configured_reason()):
+        return CheckResult(NAME, tool, not_applicable=f"{reason} (AI review skipped)")
     try:
         context = build_context(changes)
     except ContextError as exc:  # fail closed: never send unscanned code
@@ -80,11 +83,13 @@ def run(changes: ChangeSet, workspace: Workspace, call: Caller | None = None) ->
     if context.truncated:
         summary.append("context was trimmed to the size cap; some imported files were not shown")
     details = {
+        "provider": llm.provider(),
         "model": llm.model_name(),
         "calls": len(replies),
         "input_tokens": tokens_in,
         "output_tokens": tokens_out,
         "cost_usd": round(sum(costs), 6) if all(c is not None for c in costs) else None,
+        "ai_calls": [{"call_id": r.call_id, "model": r.model, "cost_usd": r.cost_usd, "fallback_used": r.fallback_used} for r in replies],
         "files_reviewed": [f.path for f in context.files],
         "candidates": len(hunted.candidates),
         "verdicts": [

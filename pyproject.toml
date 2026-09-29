@@ -10,7 +10,8 @@ readme = "README.md"
 requires-python = ">=3.11"
 # Pinned exactly (supply chain). Scanners (gitleaks, semgrep, checkov) are installed separately.
 dependencies = [
-    "openai==3.19.2",  # Stations 9/10: AI Hunter + Verifier (client's own API key)
+    "openai==3.19.2",  # Stations 9/10 provider: OpenAI (client's own API key)
+    "anthropic[bedrock]==1.9.0",  # Stations 9/10 provider: Claude on Amazon Bedrock (AWS credentials)
 ]
 
 [project.optional-dependencies]

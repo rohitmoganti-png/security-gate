@@ -1,0 +1,4 @@
+# The gate Python env: our package's dependencies + Semgrep (same env, as install-tools.sh does)
+openai==3.19.2
+anthropic[bedrock]==1.9.0
+semgrep==1.178.0

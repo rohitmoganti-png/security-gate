@@ -1,0 +1,34 @@
+# LiteLLM settings for the Security Check. LiteLLM runs ONLY inside the Security Check machine
+# (127.0.0.1:4000) and forwards the gate's AI calls to Amazon Bedrock with the machine's IAM role.
+#
+# Trusted input: this file ships in the tool image. A PR in the app repo cannot change it.
+# `os.environ/NAME` values are filled in by scripts/start-litellm.sh when LiteLLM starts.
+
+model_list:
+  - model_name: security-review            # the name the gate asks for (SECURITY_GATE_MODEL)
+    litellm_params:
+      model: os.environ/LITELLM_PRIMARY_MODEL     # bedrock/global.anthropic.claude-sonnet-4-6
+      aws_region_name: os.environ/AWS_REGION
+  - model_name: security-review-fallback
+    litellm_params:
+      model: os.environ/LITELLM_FALLBACK_MODEL    # bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      aws_region_name: os.environ/AWS_REGION
+
+router_settings:
+  num_retries: 1                            # one retry on the same model, then the fallback
+  timeout: 180                              # seconds per call (matches the gate's own timeout)
+  fallbacks:
+    - security-review: [security-review-fallback]
+
+litellm_settings:
+  turn_off_message_logging: true            # never log prompts or replies (they contain client code)
+  callbacks: ["s3_v2"]                      # one JSON record per call → S3 (removed if no bucket is set)
+  s3_callback_params:
+    s3_bucket_name: os.environ/REPORTS_BUCKET
+    s3_region_name: os.environ/AWS_REGION
+    s3_path: litellm-logs
+    s3_batch_size: 1                        # upload each record right away: the machine is short-lived
+    s3_flush_interval: 1
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY # random per job; only the gate on this machine knows it

@@ -1,0 +1,2 @@
+# Checkov in its own env (huge dependency tree; must never break Semgrep)
+checkov==3.3.19

@@ -1,0 +1,16 @@
+# Only what the Dockerfile copies is needed; keep secrets and local junk out of the image.
+.git
+.github
+.env
+.env.*
+.venv
+.tools
+tests
+scripts
+!scripts/start-litellm.sh
+**/__pycache__
+*.egg-info
+.pytest_cache
+.ruff_cache
+security-report.*
+.DS_Store

@@ -12,7 +12,16 @@
 # Runs 6 checks on ONLY what the push / PR changed:
 #   1 Secrets (Gitleaks)   2 Risky code (Semgrep)   3 AI code smells (Semgrep + our pack)
 #   4 Fake packages (PyPI/npm/OSV)   5 Dependency CVEs (OSV.dev)   6 Infrastructure (Checkov)
-#   7 AI review (Hunter; needs the caller to pass secrets.OPENAI_API_KEY)
+#   7 AI review (Hunter + Verifier): Claude on Bedrock via vars.BEDROCK_ROLE_ARN (GitHub OIDC,
+#     caller grants id-token: write), or OpenAI via secrets.OPENAI_API_KEY, or (inside the
+#     toolbox image) through LiteLLM on localhost with vars.SECURITY_GATE_PROVIDER=litellm
+#
+# Two ways to run:
+#   GitHub-hosted (runner: ubuntu-latest): installs the gate + pinned scanners on every run.
+#   AWS CodeBuild (runner: codebuild-<prefix>-gate-runner-<run_id>-<attempt>): the job runs INSIDE
+#     the toolbox image (everything pre-installed); the machine's IAM role reaches Bedrock and S3.
+#     Repo variables: SECURITY_GATE_PROVIDER=litellm, SECURITY_GATE_MODEL=security-review,
+#     AWS_REGION, REPORTS_BUCKET, optional SECURITY_GATE_PRIMARY_MODEL / SECURITY_GATE_FALLBACK_MODEL.
 # ─────────────────────────────────────────────────────────────────────────────
 name: Security Check
 
@@ -32,6 +41,9 @@ on:
         type: string
         default: ubuntu-latest
     secrets:
+      SECURITY_GATE_TOKEN:
+        description: "Read-only token for the PRIVATE security-gate repo (Contents: read). Not needed if the repo is public."
+        required: false
       OPENAI_API_KEY:
         description: "Your own OpenAI key for the AI review (check 7). Optional: without it, AI review is skipped."
         required: false
@@ -44,6 +56,9 @@ jobs:
     name: Security Check
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write # to sign in to AWS via GitHub OIDC (Bedrock); caller must grant it
     outputs:
       exit-code: ${{ steps.scan.outputs.exit-code }}
       summary: ${{ steps.scan.outputs.summary }}
@@ -56,26 +71,60 @@ jobs:
           fetch-depth: 0 # full history: needed to compare against the base commit
           persist-credentials: false # don't leave a token lying around for scanned code
 
+      - name: Is this machine the Security Gate toolbox image?
+        id: toolbox
+        run: |
+          if [ -x /opt/security-gate/start-litellm.sh ] && command -v security-gate >/dev/null; then
+            echo "in-image=true" >> "$GITHUB_OUTPUT"
+            echo "Running inside the toolbox image: $(security-gate --version); tools are pre-installed."
+          else
+            echo "in-image=false" >> "$GITHUB_OUTPUT"
+            echo "Not the toolbox image: installing the gate and scanners for this run."
+          fi
+
       - name: Check out the Security Gate itself
+        if: steps.toolbox.outputs.in-image != 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: rohitmoganti-png/security-gate
           ref: ${{ inputs.gate-ref }}
           path: .security-gate-tool
+          token: ${{ secrets.SECURITY_GATE_TOKEN || github.token }} # private tool repo needs a read token
           persist-credentials: false
 
       - name: Set up Python
+        if: steps.toolbox.outputs.in-image != 'true'
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
+      - name: Sign in to AWS for Bedrock (only if BEDROCK_ROLE_ARN is set)
+        if: vars.BEDROCK_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.BEDROCK_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+          role-session-name: security-gate-${{ github.run_id }}
+          role-duration-seconds: 3600 # temporary credentials, gone when the job ends
+
       - name: Install Security Gate + pinned scanners
+        if: steps.toolbox.outputs.in-image != 'true'
         run: |
           python -m venv "$RUNNER_TEMP/gate-venv"
           source "$RUNNER_TEMP/gate-venv/bin/activate"
           pip install --quiet ./.security-gate-tool
           cd .security-gate-tool && ./scripts/install-tools.sh
           echo "$RUNNER_TEMP/gate-venv/bin" >> "$GITHUB_PATH"
+
+      - name: Start LiteLLM (AI calls go through it; toolbox image only)
+        id: litellm
+        if: steps.toolbox.outputs.in-image == 'true' && vars.SECURITY_GATE_PROVIDER == 'litellm'
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+          SECURITY_GATE_PRIMARY_MODEL: ${{ vars.SECURITY_GATE_PRIMARY_MODEL }}
+          SECURITY_GATE_FALLBACK_MODEL: ${{ vars.SECURITY_GATE_FALLBACK_MODEL }}
+          REPORTS_BUCKET: ${{ vars.REPORTS_BUCKET }}
+        run: /opt/security-gate/start-litellm.sh # sets LITELLM_API_KEY (masked) + LITELLM_BASE_URL
 
       - name: Work out what changed
         id: range
@@ -115,7 +164,9 @@ jobs:
         id: scan
         env:
           SECURITY_GATE_MODE: ${{ inputs.mode || vars.SECURITY_GATE_MODE || 'enforce' }}
+          SECURITY_GATE_PROVIDER: ${{ vars.SECURITY_GATE_PROVIDER }}
           SECURITY_GATE_MODEL: ${{ vars.SECURITY_GATE_MODEL }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           BASE: ${{ steps.range.outputs.base }}
           HEAD: ${{ steps.range.outputs.head }}
@@ -137,6 +188,23 @@ jobs:
           print("summary=" + (text[:118] + " - see Details")[:140])
           PY
           exit $code
+
+      - name: Save the reports in S3 (reports-raw/ + reports-html/)
+        if: always() && vars.REPORTS_BUCKET != '' && hashFiles('security-report.json') != ''
+        continue-on-error: true # the verdict is already decided; a storage problem shows as a warning
+        env:
+          BUCKET: ${{ vars.REPORTS_BUCKET }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+        run: security-gate upload --bucket "$BUCKET"
+
+      - name: Show the LiteLLM log and stop LiteLLM
+        if: always() && steps.litellm.outcome != 'skipped'
+        run: |
+          sleep 3 # let LiteLLM finish filing its per-call records in S3 (litellm-logs/)
+          echo "::group::LiteLLM log (no prompts or replies are logged)"
+          tail -n 300 /tmp/litellm/litellm.log || true
+          echo "::endgroup::"
+          kill "$(cat /tmp/litellm/pid)" 2>/dev/null || true
 
       - name: Upload the HTML report (opens as a single file)
         id: upload-html
@@ -191,9 +259,9 @@ jobs:
             1) STATE=failure ;;
             *) STATE=error ;;
           esac
-          gh api --method POST "repos/$REPO/statuses/$SHA" \
-            -f state="$STATE" \
-            -f context="Security Report" \
-            -f description="$SUMMARY" \
-            -f target_url="$URL" > /dev/null
+          # curl + python3 (not the gh CLI): both exist on GitHub-hosted runners AND in the toolbox image
+          BODY=$(STATE="$STATE" python3 -c 'import json, os; print(json.dumps({"state": os.environ["STATE"], "context": "Security Report", "description": os.environ["SUMMARY"], "target_url": os.environ["URL"]}))')
+          curl -fsS -o /dev/null -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$REPO/statuses/$SHA" -d "$BODY"
           echo "Posted '$STATE' Security Report status on $SHA -> $URL"

@@ -122,6 +122,7 @@ def run_metadata(changes: ChangeSet) -> dict:
         "base_sha": changes.base,
         "actor": env.get("GITHUB_ACTOR", ""),
         "run_id": run_id,
+        "run_attempt": env.get("GITHUB_RUN_ATTEMPT", ""),
         "run_url": f"{server}/{repo}/actions/runs/{run_id}" if repo and run_id else "",
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
     }

@@ -1,6 +1,7 @@
 """The `security-gate` command.
 
     security-gate scan --base <commit-or-branch> [--head HEAD] [--repo .] [--mode enforce|report]
+    security-gate upload --bucket <s3-bucket> [--json security-report.json] [--html security-report.html]
 
 Exit codes: 0 = passed (or report-only), 1 = blocked, 2 = a check could not run (fail closed).
 """
@@ -34,7 +35,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     scan.add_argument("--output", default="security-report.json", help="JSON report path")
     scan.add_argument("--html", default="security-report.html", help="HTML report path")
+    upload = sub.add_parser("upload", help="file the JSON + HTML reports in S3")
+    upload.add_argument("--bucket", required=True, help="S3 bucket (the stack's ReportsBucketName)")
+    upload.add_argument("--json", default="security-report.json", help="JSON report path")
+    upload.add_argument("--html", default="security-report.html", help="HTML report path")
     args = parser.parse_args(argv)
+
+    if args.command == "upload":
+        return _upload(args)
 
     try:
         changes = collect_changes(args.repo, args.base, args.head)
@@ -60,6 +68,18 @@ def main(argv: list[str] | None = None) -> int:
     Path(args.html).write_text(html_report.render(data))
     print(f"Full report: {args.output} and {args.html}")
     return code
+
+
+def _upload(args: argparse.Namespace) -> int:
+    from security_gate.storage import upload_reports
+
+    try:
+        for uri in upload_reports(args.bucket, args.json, args.html):
+            print(f"Saved {uri}")
+    except Exception as exc:  # the verdict is already decided; report the storage problem clearly
+        print(f"security-gate: could not save the reports to S3: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
