@@ -26,9 +26,7 @@ litellm_settings:
   s3_callback_params:
     s3_bucket_name: os.environ/REPORTS_BUCKET
     s3_region_name: os.environ/AWS_REGION
-    s3_path: litellm-logs
-    s3_batch_size: 1                        # upload each record right away: the machine is short-lived
-    s3_flush_interval: 1
+    s3_path: litellm-logs                   # upload timing is set in start-litellm.sh (environment)
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY # random per job; only the gate on this machine knows it

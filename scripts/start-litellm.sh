@@ -17,6 +17,11 @@ export LITELLM_PRIMARY_MODEL="bedrock/${SECURITY_GATE_PRIMARY_MODEL:-global.anth
 export LITELLM_FALLBACK_MODEL="bedrock/${SECURITY_GATE_FALLBACK_MODEL:-us.anthropic.claude-haiku-4-5-20251001-v1:0}"
 export LITELLM_MASTER_KEY="sk-$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 export LITELLM_TELEMETRY=False
+# Upload each S3 log record right away. This LiteLLM version reads these ONLY from the environment
+# (s3_batch_size / s3_flush_interval in the config are ignored); the defaults (512 records / every
+# 10 s) lose records, because the machine is deleted seconds after the last AI call.
+export DEFAULT_S3_BATCH_SIZE=1
+export DEFAULT_S3_FLUSH_INTERVAL_SECONDS=1
 CONFIG="${LITELLM_CONFIG:-/opt/security-gate/litellm-config.yaml}"
 PY=/opt/litellm/venv/bin/python
 URL=http://127.0.0.1:4000
